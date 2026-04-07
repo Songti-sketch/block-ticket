@@ -38,7 +38,7 @@ const tickets: Ticket[] = [
     date: "May 18, 2025",
     listed: true,
     region: "Greater China",
-    imageSrc: "/artists/may.jpeg",
+    imageSrc: "block-ticket/artists/may.jpeg",
     accent: "from-cyan-300 via-sky-400 to-indigo-500",
     provenance: [
       { label: "Minted", value: "Organizer → Fan Presale" },
@@ -58,7 +58,7 @@ const tickets: Ticket[] = [
     date: "Jun 07, 2025",
     listed: true,
     region: "Greater China",
-    imageSrc: "/artists/easonChen.jpg",
+    imageSrc: "block-ticket/artists/easonChen.jpg",
     accent: "from-fuchsia-400 via-pink-400 to-rose-500",
     provenance: [
       { label: "Minted", value: "Organizer → Priority Queue" },
