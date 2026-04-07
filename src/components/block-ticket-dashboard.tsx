@@ -107,9 +107,18 @@ const tickets: Ticket[] = [
 ];
 
 const connectedWallet = "0xA1cE...92F4";
+const publicBasePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 function formatEth(value: number) {
   return `${value.toFixed(2)} ETH`;
+}
+
+function withBasePath(path: string) {
+  if (!path.startsWith("/")) {
+    return `${publicBasePath}/${path}`;
+  }
+
+  return `${publicBasePath}${path}`;
 }
 
 function getCap(ticket: Ticket) {
@@ -239,7 +248,7 @@ export function BlockTicketDashboard() {
                         <div className="relative h-56 overflow-hidden rounded-[24px]">
                           {ticket.imageSrc ? (
                             <Image
-                              src={ticket.imageSrc}
+                              src={withBasePath(ticket.imageSrc)}
                               alt={ticket.artist}
                               fill
                               className="object-cover"
