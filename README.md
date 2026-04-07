@@ -59,6 +59,43 @@ Each ticket is minted with an immutable `originalPrice`.
 
 7. Open `http://localhost:3000` to view the mock marketplace UI.
 
+## Deploy to GitHub Pages
+
+This project is configured for static export deployment to GitHub Pages.
+
+### What is configured
+
+- `next.config.ts` uses `output: "export"` for static generation.
+- Image handling is switched to `unoptimized` so local assets work in static hosting.
+- A GitHub Actions workflow publishes the `out/` directory to Pages on every push to `main`.
+- When deployed from GitHub Actions, the app automatically uses the repository subpath, e.g. `/block-ticket`.
+
+### One-time GitHub setup
+
+1. Open the GitHub repository settings.
+2. Go to `Settings` → `Pages`.
+3. Under `Build and deployment`, choose `GitHub Actions` as the source.
+4. Push the latest code to `main`.
+5. Wait for the `Deploy to GitHub Pages` workflow to finish.
+
+### Expected Pages URL
+
+If the repository is `https://github.com/Songti-sketch/block-ticket`, the published site URL should be:
+
+```text
+https://songti-sketch.github.io/block-ticket/
+```
+
+### Local verification for Pages mode
+
+To verify the same export behavior locally, run:
+
+```bash
+GITHUB_ACTIONS=true GITHUB_REPOSITORY=Songti-sketch/block-ticket npm run build
+```
+
+The static files will be generated in `out/`.
+
 ## Included Features
 
 - ERC-721 ticket minting with immutable original pricing
@@ -124,10 +161,11 @@ The following checks were run after the latest UI and documentation update:
 | Contract tests | `npm run contracts:test` | Pass | `3 passing (3 mocha)` |
 | Lint | `npm run lint` | Pass | No lint errors |
 | Production build | `npm run build` | Pass | Static `/` page generated successfully |
+| Pages export build | `GITHUB_ACTIONS=true GITHUB_REPOSITORY=Songti-sketch/block-ticket npm run build` | Pass | Verifies static export under `/block-ticket/` |
 
 ## 中文说明
 
-下面是面向中文读者的页面说明，方便演示、答辩或项目交接时快速理解每个板块的作用。
+下面是面向中文读者的页面说明，方便快速理解每个板块的作用。
 
 ### 页面结构与功能
 
@@ -187,3 +225,4 @@ The following checks were run after the latest UI and documentation update:
 | 合约逻辑测试 | `npm run contracts:test` | 通过 | 共 3 项测试通过，覆盖铸造、105% 合法转售、115% 超限回退 |
 | 代码检查 | `npm run lint` | 通过 | 前端组件与文档更新后无 lint 错误 |
 | 生产构建 | `npm run build` | 通过 | 首页成功静态生成，可用于交付演示 |
+| GitHub Pages 导出构建 | `GITHUB_ACTIONS=true GITHUB_REPOSITORY=Songti-sketch/block-ticket npm run build` | 通过 | 已验证仓库子路径 `/block-ticket/` 下的静态导出 |
