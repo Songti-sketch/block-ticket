@@ -21,6 +21,7 @@ contract TicketNFT is ERC721, Ownable {
 
     mapping(uint256 tokenId => TicketDetails) private _ticketDetails;
     mapping(uint256 tokenId => ResaleOffer) public resaleOffers;
+    mapping(uint256 tokenId => bool) public usedTickets;
 
     event TicketMinted(
         uint256 indexed tokenId,
@@ -32,6 +33,7 @@ contract TicketNFT is ERC721, Ownable {
     event TicketListed(uint256 indexed tokenId, address indexed seller, uint256 resalePrice);
     event TicketResold(uint256 indexed tokenId, address indexed seller, address indexed buyer, uint256 resalePrice);
     event ResaleCancelled(uint256 indexed tokenId);
+    event TicketUsed(uint256 indexed tokenId, address indexed owner);
 
     constructor(address organizer) ERC721("Block Ticket", "BTIX") Ownable(organizer) {}
 
@@ -58,6 +60,7 @@ contract TicketNFT is ERC721, Ownable {
 
     function listTicketForResale(uint256 tokenId, uint256 newPrice) external {
         require(ownerOf(tokenId) == msg.sender, "Only ticket owner can list");
+        require(!usedTickets[tokenId], "Ticket has already been used");
         require(newPrice <= maxResalePrice(tokenId), "Price exceeds scalping cap");
 
         resaleOffers[tokenId] = ResaleOffer({
@@ -81,6 +84,7 @@ contract TicketNFT is ERC721, Ownable {
         ResaleOffer memory offer = resaleOffers[tokenId];
 
         require(offer.active, "Ticket is not listed");
+        require(!usedTickets[tokenId], "Ticket has already been used");
         require(newPrice <= maxResalePrice(tokenId), "Price exceeds scalping cap");
         require(newPrice == offer.price, "Resale price mismatch");
         require(msg.value == newPrice, "Incorrect payment");
@@ -94,6 +98,19 @@ contract TicketNFT is ERC721, Ownable {
         require(success, "Payment failed");
 
         emit TicketResold(tokenId, offer.seller, msg.sender, newPrice);
+    }
+
+    function markTicketUsed(uint256 tokenId) external onlyOwner {
+        require(_ticketDetails[tokenId].originalPrice > 0, "Ticket does not exist");
+        require(!usedTickets[tokenId], "Ticket already used");
+
+        usedTickets[tokenId] = true;
+
+        if (resaleOffers[tokenId].active) {
+            delete resaleOffers[tokenId];
+        }
+
+        emit TicketUsed(tokenId, ownerOf(tokenId));
     }
 
     function maxResalePrice(uint256 tokenId) public view returns (uint256) {
@@ -119,7 +136,13 @@ contract TicketNFT is ERC721, Ownable {
     }
 
     function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
-        address previousOwner = super._update(to, tokenId, auth);
+        address previousOwner = _ownerOf(tokenId);
+
+        if (previousOwner != address(0) && previousOwner != to) {
+            require(!usedTickets[tokenId], "Ticket has already been used");
+        }
+
+        previousOwner = super._update(to, tokenId, auth);
 
         if (previousOwner != address(0) && previousOwner != to && resaleOffers[tokenId].active) {
             delete resaleOffers[tokenId];

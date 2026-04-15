@@ -1,7 +1,9 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { withBasePath } from "@/lib/block-ticket";
 
 type ProvenanceStep = {
   label: string;
@@ -107,18 +109,9 @@ const tickets: Ticket[] = [
 ];
 
 const connectedWallet = "0xA1cE...92F4";
-const publicBasePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 function formatEth(value: number) {
   return `${value.toFixed(2)} ETH`;
-}
-
-function withBasePath(path: string) {
-  if (!path.startsWith("/")) {
-    return `${publicBasePath}/${path}`;
-  }
-
-  return `${publicBasePath}${path}`;
 }
 
 function getCap(ticket: Ticket) {
@@ -181,6 +174,12 @@ export function BlockTicketDashboard() {
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/admin"
+                className="rounded-full border border-white/10 bg-white/8 px-4 py-3 text-sm text-slate-100 transition hover:bg-white/12"
+              >
+                Open admin console
+              </Link>
               <div className="rounded-full border border-cyan-400/25 bg-cyan-400/10 px-4 py-3 text-sm text-cyan-100">
                 Connected Wallet: <span className="font-semibold">{connectedWallet}</span>
               </div>

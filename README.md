@@ -1,6 +1,6 @@
 # Block Ticket - Anti-Scalping MVP
 
-Block Ticket is a Web3 MVP that pairs a Next.js marketplace UI with an ERC-721 smart contract to reduce ticket scalping. Organizers mint NFT tickets, and every on-chain resale is restricted by a hard maximum price.
+Block Ticket is a Web3 MVP that pairs a Next.js marketplace UI with an ERC-721 smart contract to reduce ticket scalping. Organizers mint NFT tickets, every on-chain resale is restricted by a hard maximum price, and the admin console can now submit real transactions and read back the resulting event history from chain.
 
 ## Core Mechanism
 
@@ -18,6 +18,22 @@ Each ticket is minted with an immutable `originalPrice`.
 - Hardhat 3 with Ethers.js
 - OpenZeppelin ERC-721 contracts
 - Mocha + Chai contract tests
+
+## Environment Variables
+
+Copy `.env.example` to `.env.local` and fill in the public chain configuration before using the on-chain admin console.
+
+| Variable | Purpose |
+| --- | --- |
+| `NEXT_PUBLIC_CONTRACT_ADDRESS` | Deployed `TicketNFT` contract address shown in the admin console |
+| `NEXT_PUBLIC_CHAIN_ID` | Wallet chain ID expected by the app, e.g. `11155111` for Sepolia |
+| `NEXT_PUBLIC_NETWORK_NAME` | Human-readable network label shown in the UI |
+| `NEXT_PUBLIC_RPC_URL` | Read-only RPC endpoint used to load owner data and event logs |
+| `NEXT_PUBLIC_EXPLORER_TX_BASE_URL` | Explorer transaction prefix, e.g. `https://sepolia.etherscan.io/tx` |
+| `NEXT_PUBLIC_CONTRACT_DEPLOY_BLOCK` | Optional starting block for faster event queries |
+| `SEPOLIA_RPC_URL` | Hardhat deploy RPC endpoint for testnet deployment |
+| `DEPLOYER_PRIVATE_KEY` | Organizer wallet private key used by Hardhat deploy scripts |
+| `SEED_DEMO_TICKET` | Optional `true` flag to mint one seed ticket immediately after deploy |
 
 ## Run Locally
 
@@ -51,13 +67,37 @@ Each ticket is minted with an immutable `originalPrice`.
    npm run contracts:deploy
    ```
 
-6. Start the frontend:
+6. Copy `.env.example` to `.env.local` if you want `/admin` to load a deployed contract.
+
+7. Start the frontend:
 
    ```bash
    npm run dev
    ```
 
-7. Open `http://localhost:3000` to view the mock marketplace UI.
+8. Open `http://localhost:3000` to view the marketplace UI and `http://localhost:3000/admin` to operate the real admin console.
+
+## Deploy to Sepolia for a Live On-Chain Demo
+
+1. Fill in `SEPOLIA_RPC_URL` and `DEPLOYER_PRIVATE_KEY`.
+2. Deploy the contract:
+
+   ```bash
+   npm run contracts:deploy:sepolia
+   ```
+
+3. Copy the printed `NEXT_PUBLIC_CONTRACT_ADDRESS` and `NEXT_PUBLIC_CHAIN_ID` values into `.env.local`.
+4. Add:
+
+   ```bash
+   NEXT_PUBLIC_NETWORK_NAME=Sepolia
+   NEXT_PUBLIC_EXPLORER_TX_BASE_URL=https://sepolia.etherscan.io/tx
+   ```
+
+5. Restart the frontend and open `/admin`.
+6. Connect the organizer wallet in MetaMask.
+7. Submit a mint or `markTicketUsed` transaction.
+8. Use the returned transaction hash to open Sepolia Etherscan and prove the transaction is on-chain.
 
 ## Deploy to GitHub Pages
 
@@ -100,7 +140,9 @@ The static files will be generated in `out/`.
 
 - ERC-721 ticket minting with immutable original pricing
 - Resale listing flow capped at 110% of face value
-- Automated tests for minting, allowed resale, and blocked scalping
+- Used-ticket lock that prevents relisting or transfer after check-in
+- Admin console for wallet-based minting, ticket check-in, and on-chain event history
+- Automated tests for minting, allowed resale, blocked scalping, and used-ticket restrictions
 - Dark-mode glassmorphism marketplace UI with a resale warning modal
 
 ## Page Walkthrough
@@ -152,15 +194,54 @@ The home page at `/` is organized into several presentation and workflow zones s
   - `public/artists/easonChen.jpg`
 - Demonstrates how the same pricing and validation rules apply across markets.
 
+## Admin Console Walkthrough
+
+The admin page at `/admin` is the operational view for live demos. It is designed to prove that the platform is not just a static interface.
+
+### 1. Contract Status
+
+- Shows the configured contract address, target network, detected chain ID, and current organizer wallet.
+- Flags a network mismatch before the user submits a transaction.
+- States the exact proof flow from wallet signature to block explorer.
+
+### 2. Admin Actions
+
+- `Mint ticket` sends a real `mintTicket(...)` transaction from the connected organizer wallet.
+- `Mark ticket used` sends a real `markTicketUsed(tokenId)` transaction and freezes later transfer attempts.
+- Both actions surface transaction lifecycle states: awaiting wallet, pending, confirmed, or failed.
+
+### 3. Transaction State Panel
+
+- Displays the latest submitted action, transaction hash, and mined block number.
+- Provides a direct explorer link so a reviewer can verify the same hash outside the application.
+- Keeps failure messages visible when the wallet is wrong, the network is wrong, or the transaction reverts.
+
+### 4. Recent On-Chain Activity
+
+- Reads `TicketMinted`, `TicketListed`, `TicketResold`, `ResaleCancelled`, and `TicketUsed` events directly from the configured contract.
+- Sorts them by block height so the newest proof appears first.
+- Shows both the semantic event description and the raw transaction hash.
+
+### 5. On-Chain Ticket Inventory
+
+- Reads the latest minted token IDs from `TicketMinted` events and then queries current contract state for each ticket.
+- Displays token ID, event name, seat, current owner, original price, current price, resale cap, and used/listed state.
+- Gives the demo a visible before/after result: after minting or check-in, the inventory cards change immediately after refresh.
+
+### 6. Setup Checklist
+
+- Lists the exact prerequisites for the live demo: deployed contract, populated `.env.local`, and organizer wallet access.
+- Lets a reviewer understand what must be configured before expecting on-chain writes from the admin page.
+
 ## Test Results
 
-The following checks were run after the latest UI and documentation update:
+The following checks were run after the latest admin-console update:
 
 | Check | Command | Result | Key Output |
 | --- | --- | --- | --- |
-| Contract tests | `npm run contracts:test` | Pass | `3 passing (3 mocha)` |
+| Contract tests | `env HOME=/tmp/hardhat-home npm run contracts:test` | Blocked in current sandbox | Hardhat now needs an online compiler download; rerun in a network-enabled shell |
 | Lint | `npm run lint` | Pass | No lint errors |
-| Production build | `npm run build` | Pass | Static `/` page generated successfully |
+| Production build | `npm run build` | Pass | Static `/` and `/admin` pages generated successfully |
 | Pages export build | `GITHUB_ACTIONS=true GITHUB_REPOSITORY=Songti-sketch/block-ticket npm run build` | Pass | Verifies static export under `/block-ticket/` |
 
 ## 中文说明
@@ -218,11 +299,47 @@ The following checks were run after the latest UI and documentation update:
   - `public/artists/may.jpeg`
   - `public/artists/easonChen.jpg`
 
+#### 7. 管理后台 / 链上演示页
+
+- `/admin` 页面是本次升级的重点，用来证明系统并不只是静态网页。
+- 管理员连接 MetaMask 后，可以直接发起两类真实链上操作：
+  - `Mint ticket`
+  - `Mark ticket used`
+- 每次提交后，页面都会展示：
+  - 交易状态
+  - `transaction hash`
+  - `block number`
+  - 区块浏览器跳转链接
+- 右侧的交易状态面板和下方的事件列表一起构成“链上证明”：
+- 中间新增的链上门票清单会读取合约当前状态，展示每张票的：
+  - tokenId
+  - event name
+  - owner
+  - original price / current price / resale cap
+  - listed / used 状态
+- 这样在操作后，不仅能看到交易 hash，还能直接看到该票在合约里的状态已经发生变化。
+- 右侧的交易状态面板和下方的事件列表一起构成“链上证明”：
+  - 面板展示刚刚发出的交易
+  - 事件列表展示合约发出的 `TicketMinted` / `TicketUsed` 等事件
+- 这样在答辩或演示时，可以完成“前端操作 → 钱包签名 → 交易上链 → 浏览器验证”的完整闭环。
+
+### 建议演示流程
+
+1. 打开 `/admin`
+2. 连接管理员 MetaMask
+3. 在 `Mint ticket` 中输入接收地址并提交
+4. 等待交易确认，记录页面上的 `transaction hash`
+5. 观察 `Recent on-chain activity` 新增 `Ticket minted`
+6. 观察 `On-chain ticket inventory` 新增对应 token
+7. 点击 `Open transaction in explorer`，在区块浏览器证明交易已上链
+8. 再执行一次 `Mark ticket used`
+9. 刷新后确认该 token 状态从 `Listed/Held` 变成 `Used`
+
 ### 测试结果记录表
 
 | 测试项目 | 执行命令 | 结果 | 说明 |
 | --- | --- | --- | --- |
-| 合约逻辑测试 | `npm run contracts:test` | 通过 | 共 3 项测试通过，覆盖铸造、105% 合法转售、115% 超限回退 |
+| 合约逻辑测试 | `env HOME=/tmp/hardhat-home npm run contracts:test` | 当前沙箱受限 | Hardhat 在当前环境无法联网下载编译器；在正常联网终端中可复跑新增用例 |
 | 代码检查 | `npm run lint` | 通过 | 前端组件与文档更新后无 lint 错误 |
-| 生产构建 | `npm run build` | 通过 | 首页成功静态生成，可用于交付演示 |
+| 生产构建 | `npm run build` | 通过 | 首页与 `/admin` 管理台均成功静态生成 |
 | GitHub Pages 导出构建 | `GITHUB_ACTIONS=true GITHUB_REPOSITORY=Songti-sketch/block-ticket npm run build` | 通过 | 已验证仓库子路径 `/block-ticket/` 下的静态导出 |

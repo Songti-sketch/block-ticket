@@ -66,4 +66,33 @@ describe("TicketNFT", function () {
     await expect(ticketContract.connect(seller).listTicketForResale(1, invalidResalePrice)).to.be
       .revertedWith("Price exceeds scalping cap");
   });
+
+  it("marks a ticket as used and clears any active resale listing", async function () {
+    const { ticketContract, organizer, seller, originalPrice } = await deployTicketFixture();
+    const cappedResalePrice = (originalPrice * 105n) / 100n;
+
+    await ticketContract.connect(seller).listTicketForResale(1, cappedResalePrice);
+
+    await expect(ticketContract.connect(organizer).markTicketUsed(1))
+      .to.emit(ticketContract, "TicketUsed")
+      .withArgs(1n, seller.address);
+
+    expect(await ticketContract.usedTickets(1)).to.equal(true);
+
+    const listing = await ticketContract.resaleOffers(1);
+    expect(listing.active).to.equal(false);
+  });
+
+  it("blocks transfers and resale listings after a ticket is used", async function () {
+    const { ticketContract, organizer, seller, buyer, originalPrice } = await deployTicketFixture();
+    const cappedResalePrice = (originalPrice * 105n) / 100n;
+
+    await ticketContract.connect(organizer).markTicketUsed(1);
+
+    await expect(ticketContract.connect(seller).listTicketForResale(1, cappedResalePrice)).to.be
+      .revertedWith("Ticket has already been used");
+
+    await expect(ticketContract.connect(seller).transferFrom(seller.address, buyer.address, 1)).to.be
+      .revertedWith("Ticket has already been used");
+  });
 });
