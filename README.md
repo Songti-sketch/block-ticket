@@ -13,17 +13,18 @@ Block Ticket is a ticketing demo focused on anti-scalping rules and operational 
 
 ## Product flow
 
-1. On the marketplace page, select a ticket and open the settlement panel.
-2. Choose a buyer virtual account.
-3. Enter a settlement amount that does not exceed the cap.
-4. Submit the simulated settlement.
-5. The system updates:
+1. On the marketplace page, choose a consumer identity in the top-right selector.
+2. Select a ticket and open the consumer panel.
+3. If the selected consumer owns the ticket, they can update the resale price and list it for resale.
+4. If the selected consumer does not own the ticket, they can buy it only when the ticket is listed.
+5. After settlement, the system updates:
    - ticket owner
    - current price
    - listing state
    - recent activity feed
    - virtual account balances
-6. Open `/admin` to verify the same changes in the operations view.
+6. The purchased ticket is then held in the buyer's account by default until that holder actively lists it again.
+7. Open `/admin` to verify the same changes in the operations view.
 
 ## Pages
 
@@ -32,8 +33,8 @@ Block Ticket is a ticketing demo focused on anti-scalping rules and operational 
 The homepage is the user-facing marketplace.
 
 - Shows ticket inventory, active listings, checked-in tickets, and settled volume
-- Displays each ticket's owner, original price, current price, and capped maximum
-- Lets the reviewer simulate a resale by entering an amount directly
+- Displays each ticket's owner, original price, current listing, and capped maximum
+- Lets the reviewer switch consumer identity and act as either buyer or current holder
 - Writes the result into the shared demo ledger
 
 ### `/admin`
@@ -118,6 +119,21 @@ The project is configured for static export.
 - `next.config.ts` uses `output: "export"`
 - image optimization is disabled for static hosting
 - the repository subpath is handled automatically in GitHub Actions mode
+- `.github/workflows/deploy.yml` deploys the static `out/` build to GitHub Pages on every push to `main`
+
+To enable GitHub Pages for this repository:
+
+1. Push the latest `main` branch to GitHub.
+2. Open the repository on GitHub.
+3. Go to `Settings > Pages`.
+4. Set `Source` to `GitHub Actions`.
+5. Wait for the `Deploy to GitHub Pages` workflow to finish.
+
+The site URL will be:
+
+```text
+https://songti-sketch.github.io/block-ticket/
+```
 
 Local verification:
 

@@ -13,6 +13,7 @@ export type DemoTicket = {
   artist: string;
   event: string;
   seat: string;
+  version: number;
   ownerAccountId: string;
   originalPrice: number;
   currentPrice: number;
@@ -20,6 +21,7 @@ export type DemoTicket = {
   date: string;
   listed: boolean;
   used: boolean;
+  checkInPendingUntil: string | null;
   region: string;
   imageSrc?: string;
   accent: string;
@@ -27,7 +29,15 @@ export type DemoTicket = {
 
 export type DemoLedgerEntry = {
   id: string;
-  type: "mint" | "sale" | "check_in";
+  type:
+    | "mint"
+    | "sale"
+    | "list"
+    | "price_update"
+    | "cancel_listing"
+    | "check_in"
+    | "check_in_start"
+    | "check_in_release";
   title: string;
   detail: string;
   ticketId: number;
@@ -62,114 +72,154 @@ export type SimulatedSaleInput = {
   amount: number;
 };
 
+export type DemoTicketStatus = "listed" | "held" | "check_in_pending" | "used";
+
 const STORAGE_KEY = "block-ticket-demo-ledger";
 const EVENT_NAME = "block-ticket-demo-ledger-updated";
+const CHECK_IN_LOCK_MINUTES = 3;
+const RESALE_CUTOFF_HOURS = 8;
 
-const initialState: DemoLedgerState = {
-  accounts: [
-    {
-      id: "acct-organizer",
-      name: "Organizer Treasury",
-      role: "Organizer",
-      balance: 42.5,
-      accent: "text-sky-600 bg-sky-50 border-sky-200",
-    },
-    {
-      id: "acct-lin",
-      name: "Lin Fan Club",
-      role: "Primary Buyer",
-      balance: 8.6,
-      accent: "text-emerald-600 bg-emerald-50 border-emerald-200",
-    },
-    {
-      id: "acct-mika",
-      name: "Mika Resale Desk",
-      role: "Marketplace Buyer",
-      balance: 12.4,
-      accent: "text-amber-700 bg-amber-50 border-amber-200",
-    },
-    {
-      id: "acct-noah",
-      name: "Noah Venue Ops",
-      role: "Guest Account",
-      balance: 5.2,
-      accent: "text-violet-700 bg-violet-50 border-violet-200",
-    },
-  ],
-  tickets: [
-    {
-      id: 101,
-      artist: "五月天 Mayday",
-      event: "Just Love It 银河特别场",
-      seat: "A-12",
-      ownerAccountId: "acct-lin",
-      originalPrice: 0.68,
-      currentPrice: 0.72,
-      venue: "香港启德体育园",
-      date: "2025-05-18 20:00",
-      listed: true,
-      used: false,
-      region: "Greater China",
-      imageSrc: "/artists/may.jpeg",
-      accent: "from-sky-500 to-cyan-500",
-    },
-    {
-      id: 102,
-      artist: "陈奕迅 Eason Chan",
-      event: "Fear and Dreams Final Encore",
-      seat: "VIP-03",
-      ownerAccountId: "acct-mika",
-      originalPrice: 0.92,
-      currentPrice: 0.97,
-      venue: "澳门银河综艺馆",
-      date: "2025-06-07 19:30",
-      listed: true,
-      used: false,
-      region: "Greater China",
-      imageSrc: "/artists/easonChen.jpg",
-      accent: "from-rose-500 to-orange-400",
-    },
-    {
-      id: 201,
-      artist: "Coldplay",
-      event: "Moon Music Stadium Run",
-      seat: "B-04",
-      ownerAccountId: "acct-noah",
-      originalPrice: 1.18,
-      currentPrice: 1.18,
-      venue: "Tokyo Dome",
-      date: "2025-07-02 18:30",
-      listed: false,
-      used: false,
-      region: "International",
-      accent: "from-emerald-500 to-teal-500",
-    },
-  ],
-  activity: [
-    {
-      id: "seed-sale-1",
-      type: "sale",
-      title: "Resale settled",
-      detail: "Ticket #102 transferred from Mika Resale Desk to Noah Venue Ops.",
-      ticketId: 102,
-      amount: 0.97,
-      actorAccountId: "acct-mika",
-      counterpartyAccountId: "acct-noah",
-      createdAt: "2025-04-12T10:18:00.000Z",
-    },
-    {
-      id: "seed-mint-1",
-      type: "mint",
-      title: "Ticket issued",
-      detail: "Ticket #201 issued from Organizer Treasury to Noah Venue Ops.",
-      ticketId: 201,
-      amount: 1.18,
-      actorAccountId: "acct-organizer",
-      counterpartyAccountId: "acct-noah",
-      createdAt: "2025-04-11T08:05:00.000Z",
-    },
-  ],
-};
+function formatFutureTicketDate(offsetDays: number, hour: number, minute: number) {
+  const next = new Date();
+  next.setSeconds(0, 0);
+  next.setDate(next.getDate() + offsetDays);
+  next.setHours(hour, minute, 0, 0);
+
+  const year = next.getFullYear();
+  const month = String(next.getMonth() + 1).padStart(2, "0");
+  const day = String(next.getDate()).padStart(2, "0");
+  const hours = String(next.getHours()).padStart(2, "0");
+  const minutes = String(next.getMinutes()).padStart(2, "0");
+
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function getFutureTicketDateById(ticketId: number) {
+  switch (ticketId) {
+    case 101:
+      return formatFutureTicketDate(12, 20, 0);
+    case 102:
+      return formatFutureTicketDate(19, 19, 30);
+    case 201:
+      return formatFutureTicketDate(27, 18, 30);
+    default:
+      return formatFutureTicketDate(14, 20, 0);
+  }
+}
+
+function createInitialDemoLedgerState(): DemoLedgerState {
+  return {
+    accounts: [
+      {
+        id: "acct-organizer",
+        name: "Organizer Treasury",
+        role: "Organizer",
+        balance: 42.5,
+        accent: "text-sky-600 bg-sky-50 border-sky-200",
+      },
+      {
+        id: "acct-lin",
+        name: "Lin Fan Club",
+        role: "Primary Buyer",
+        balance: 8.6,
+        accent: "text-emerald-600 bg-emerald-50 border-emerald-200",
+      },
+      {
+        id: "acct-mika",
+        name: "Mika Resale Desk",
+        role: "Marketplace Buyer",
+        balance: 12.4,
+        accent: "text-amber-700 bg-amber-50 border-amber-200",
+      },
+      {
+        id: "acct-noah",
+        name: "Noah Venue Ops",
+        role: "Guest Account",
+        balance: 5.2,
+        accent: "text-violet-700 bg-violet-50 border-violet-200",
+      },
+    ],
+    tickets: [
+      {
+        id: 101,
+        artist: "Mayday",
+        event: "Just Love It Galaxy Special",
+        seat: "A-12",
+        version: 1,
+        ownerAccountId: "acct-lin",
+        originalPrice: 0.68,
+        currentPrice: 0.72,
+        venue: "Kai Tak Sports Park, Hong Kong",
+        date: getFutureTicketDateById(101),
+        listed: true,
+        used: false,
+        checkInPendingUntil: null,
+        region: "Greater China",
+        imageSrc: "/artists/may.jpeg",
+        accent: "from-sky-500 to-cyan-500",
+      },
+      {
+        id: 102,
+        artist: "Eason Chan",
+        event: "Fear and Dreams Final Encore",
+        seat: "VIP-03",
+        version: 1,
+        ownerAccountId: "acct-mika",
+        originalPrice: 0.92,
+        currentPrice: 0.97,
+        venue: "Galaxy Arena, Macau",
+        date: getFutureTicketDateById(102),
+        listed: true,
+        used: false,
+        checkInPendingUntil: null,
+        region: "Greater China",
+        imageSrc: "/artists/easonChen.jpg",
+        accent: "from-rose-500 to-orange-400",
+      },
+      {
+        id: 201,
+        artist: "Coldplay",
+        event: "Moon Music Stadium Run",
+        seat: "B-04",
+        version: 1,
+        ownerAccountId: "acct-noah",
+        originalPrice: 1.18,
+        currentPrice: 1.18,
+        venue: "Tokyo Dome",
+        date: getFutureTicketDateById(201),
+        listed: false,
+        used: false,
+        checkInPendingUntil: null,
+        region: "International",
+        accent: "from-emerald-500 to-teal-500",
+      },
+    ],
+    activity: [
+      {
+        id: "seed-sale-1",
+        type: "sale",
+        title: "Resale settled",
+        detail: "Ticket #102 transferred from Mika Resale Desk to Noah Venue Ops.",
+        ticketId: 102,
+        amount: 0.97,
+        actorAccountId: "acct-mika",
+        counterpartyAccountId: "acct-noah",
+        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: "seed-mint-1",
+        type: "mint",
+        title: "Ticket issued",
+        detail: "Ticket #201 issued from Organizer Treasury to Noah Venue Ops.",
+        ticketId: 201,
+        amount: 1.18,
+        actorAccountId: "acct-organizer",
+        counterpartyAccountId: "acct-noah",
+        createdAt: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
+      },
+    ],
+  };
+}
 
 function cloneState(state: DemoLedgerState) {
   return JSON.parse(JSON.stringify(state)) as DemoLedgerState;
@@ -198,12 +248,16 @@ function persistState(state: DemoLedgerState) {
 }
 
 export function getInitialDemoLedgerState() {
-  return cloneState(initialState);
+  return cloneState(createInitialDemoLedgerState());
 }
 
 export function readDemoLedgerState() {
   if (!isBrowser()) {
-    return getInitialDemoLedgerState();
+    const initial = getInitialDemoLedgerState();
+    normalizeTicketVersions(initial);
+    normalizePastTicketDates(initial);
+    normalizeExpiredLocks(initial);
+    return initial;
   }
 
   const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -213,7 +267,17 @@ export function readDemoLedgerState() {
   }
 
   try {
-    return JSON.parse(raw) as DemoLedgerState;
+    const parsed = JSON.parse(raw) as DemoLedgerState;
+
+    const normalizedVersions = normalizeTicketVersions(parsed);
+    const normalizedDates = normalizePastTicketDates(parsed);
+    const normalizedLocks = normalizeExpiredLocks(parsed);
+
+    if (normalizedVersions || normalizedDates || normalizedLocks) {
+      return persistState(parsed);
+    }
+
+    return parsed;
   } catch {
     return persistState(getInitialDemoLedgerState());
   }
@@ -252,12 +316,132 @@ function getTicketById(state: DemoLedgerState, ticketId: number) {
   return state.tickets.find((ticket) => ticket.id === ticketId);
 }
 
+function getFutureIso(minutes: number) {
+  return new Date(Date.now() + minutes * 60_000).toISOString();
+}
+
+function parseTicketDate(date: string) {
+  const normalized = date.includes("T") ? date : date.replace(" ", "T");
+  const parsed = Date.parse(normalized);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+export function isTicketCheckInPending(ticket: DemoTicket, now = Date.now()) {
+  if (!ticket.checkInPendingUntil || ticket.used) {
+    return false;
+  }
+
+  return Date.parse(ticket.checkInPendingUntil) > now;
+}
+
+export function getTicketStatus(ticket: DemoTicket, now = Date.now()): DemoTicketStatus {
+  if (ticket.used) {
+    return "used";
+  }
+
+  if (isTicketCheckInPending(ticket, now)) {
+    return "check_in_pending";
+  }
+
+  return ticket.listed ? "listed" : "held";
+}
+
+export function isResaleWindowClosed(ticket: DemoTicket, now = Date.now()) {
+  const eventTime = parseTicketDate(ticket.date);
+
+  if (eventTime === null) {
+    return false;
+  }
+
+  return eventTime - now <= RESALE_CUTOFF_HOURS * 60 * 60 * 1000;
+}
+
+export function getResaleCutoffHours() {
+  return RESALE_CUTOFF_HOURS;
+}
+
+export function getCheckInRemainingSeconds(ticket: DemoTicket, now = Date.now()) {
+  if (!isTicketCheckInPending(ticket, now) || !ticket.checkInPendingUntil) {
+    return 0;
+  }
+
+  return Math.max(Math.ceil((Date.parse(ticket.checkInPendingUntil) - now) / 1000), 0);
+}
+
+export function formatRemainingSeconds(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+}
+
+function normalizeExpiredLocks(state: DemoLedgerState) {
+  const now = Date.now();
+  let changed = false;
+
+  state.tickets.forEach((ticket) => {
+    if (!ticket.checkInPendingUntil || ticket.used) {
+      return;
+    }
+
+    if (Date.parse(ticket.checkInPendingUntil) <= now) {
+      ticket.checkInPendingUntil = null;
+      changed = true;
+
+      state.activity.unshift({
+        id: `check-in-release-${ticket.id}-${now}`,
+        type: "check_in_release",
+        title: "Gate lock released",
+        detail: `Ticket #${ticket.id} returned to a transferable state after the gate validation window expired.`,
+        ticketId: ticket.id,
+        amount: ticket.currentPrice,
+        actorAccountId: ticket.ownerAccountId,
+        createdAt: new Date(now).toISOString(),
+      });
+    }
+  });
+
+  return changed;
+}
+
+function normalizePastTicketDates(state: DemoLedgerState) {
+  const now = Date.now();
+  let changed = false;
+
+  state.tickets.forEach((ticket) => {
+    if (ticket.used) {
+      return;
+    }
+
+    const eventTime = parseTicketDate(ticket.date);
+
+    if (eventTime !== null && eventTime <= now) {
+      ticket.date = getFutureTicketDateById(ticket.id);
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+function normalizeTicketVersions(state: DemoLedgerState) {
+  let changed = false;
+
+  state.tickets.forEach((ticket) => {
+    if (!Number.isFinite(ticket.version) || ticket.version <= 0) {
+      ticket.version = 1;
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
 export function formatTokenAmount(value: number) {
   return `${value.toFixed(2)} ETH`;
 }
 
 export function formatLedgerTime(value: string) {
-  return new Date(value).toLocaleString("zh-CN", {
+  return new Date(value).toLocaleString("en-US", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -300,6 +484,7 @@ export function mintDemoTicket(input: MintTicketInput) {
       artist: input.artist,
       event: input.event,
       seat: input.seat,
+      version: 1,
       ownerAccountId: input.ownerAccountId,
       originalPrice: Number(input.originalPrice.toFixed(2)),
       currentPrice: Number(input.originalPrice.toFixed(2)),
@@ -307,6 +492,7 @@ export function mintDemoTicket(input: MintTicketInput) {
       date: input.date,
       listed: false,
       used: false,
+      checkInPendingUntil: null,
       region: input.region,
       imageSrc: input.imageSrc,
       accent: input.accent ?? "from-slate-700 to-slate-500",
@@ -322,6 +508,182 @@ export function mintDemoTicket(input: MintTicketInput) {
       amount: nextTicket.originalPrice,
       actorAccountId: "acct-organizer",
       counterpartyAccountId: owner.id,
+      createdAt: new Date().toISOString(),
+    });
+
+    return state;
+  });
+}
+
+export function listDemoTicket(ticketId: number) {
+  if (!Number.isFinite(ticketId) || ticketId <= 0) {
+    throw new Error("Enter a valid ticket ID.");
+  }
+
+  return updateLedgerState((state) => {
+    const ticket = getTicketById(state, ticketId);
+
+    if (!ticket) {
+      throw new Error("Ticket not found.");
+    }
+
+    if (ticket.used) {
+      throw new Error("Checked-in tickets cannot be listed again.");
+    }
+
+    if (isTicketCheckInPending(ticket)) {
+      throw new Error("Tickets locked for gate validation cannot be listed.");
+    }
+
+    if (isResaleWindowClosed(ticket)) {
+      throw new Error(`Resale closes automatically ${RESALE_CUTOFF_HOURS} hours before the event starts.`);
+    }
+
+    if (ticket.listed) {
+      throw new Error("This ticket is already listed for resale.");
+    }
+
+    ticket.listed = true;
+    ticket.version += 1;
+
+    state.activity.unshift({
+      id: `list-${Date.now()}`,
+      type: "list",
+      title: "Ticket listed",
+      detail: `Ticket #${ticket.id} remains in ${getAccountName(state, ticket.ownerAccountId)} while waiting for a buyer.`,
+      ticketId: ticket.id,
+      amount: ticket.currentPrice,
+      actorAccountId: ticket.ownerAccountId,
+      createdAt: new Date().toISOString(),
+    });
+
+    return state;
+  });
+}
+
+export function setDemoTicketListingPrice(ticketId: number, amount: number) {
+  if (!Number.isFinite(ticketId) || ticketId <= 0) {
+    throw new Error("Enter a valid ticket ID.");
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Listing price must be greater than 0.");
+  }
+
+  return updateLedgerState((state) => {
+    const ticket = getTicketById(state, ticketId);
+
+    if (!ticket) {
+      throw new Error("Ticket not found.");
+    }
+
+    if (ticket.used) {
+      throw new Error("Checked-in tickets cannot be repriced.");
+    }
+
+    if (isTicketCheckInPending(ticket)) {
+      throw new Error("Tickets locked for gate validation cannot be repriced.");
+    }
+
+    if (isResaleWindowClosed(ticket)) {
+      throw new Error(`Resale closes automatically ${RESALE_CUTOFF_HOURS} hours before the event starts.`);
+    }
+
+    const nextAmount = Number(amount.toFixed(2));
+    const cap = getTicketCap(ticket);
+
+    if (nextAmount > cap) {
+      throw new Error(`Listing price exceeds the 110% cap (${formatTokenAmount(cap)}).`);
+    }
+
+    if (ticket.currentPrice === nextAmount) {
+      return state;
+    }
+
+    ticket.currentPrice = nextAmount;
+    ticket.version += 1;
+
+    state.activity.unshift({
+      id: `price-update-${Date.now()}`,
+      type: "price_update",
+      title: "Listing price updated",
+      detail: `Ticket #${ticket.id} was repriced to ${formatTokenAmount(nextAmount)} by ${getAccountName(state, ticket.ownerAccountId)}.`,
+      ticketId: ticket.id,
+      amount: nextAmount,
+      actorAccountId: ticket.ownerAccountId,
+      createdAt: new Date().toISOString(),
+    });
+
+    return state;
+  });
+}
+
+export function cancelDemoListing(ticketId: number) {
+  if (!Number.isFinite(ticketId) || ticketId <= 0) {
+    throw new Error("Enter a valid ticket ID.");
+  }
+
+  return updateLedgerState((state) => {
+    const ticket = getTicketById(state, ticketId);
+
+    if (!ticket) {
+      throw new Error("Ticket not found.");
+    }
+
+    if (!ticket.listed) {
+      throw new Error("This ticket is not currently listed.");
+    }
+
+    ticket.listed = false;
+    ticket.version += 1;
+
+    state.activity.unshift({
+      id: `cancel-listing-${Date.now()}`,
+      type: "cancel_listing",
+      title: "Listing cancelled",
+      detail: `Ticket #${ticket.id} was removed from the market and remains with ${getAccountName(state, ticket.ownerAccountId)}.`,
+      ticketId: ticket.id,
+      amount: ticket.currentPrice,
+      actorAccountId: ticket.ownerAccountId,
+      createdAt: new Date().toISOString(),
+    });
+
+    return state;
+  });
+}
+
+export function startDemoCheckIn(ticketId: number) {
+  if (!Number.isFinite(ticketId) || ticketId <= 0) {
+    throw new Error("Enter a valid ticket ID.");
+  }
+
+  return updateLedgerState((state) => {
+    const ticket = getTicketById(state, ticketId);
+
+    if (!ticket) {
+      throw new Error("Ticket not found.");
+    }
+
+    if (ticket.used) {
+      throw new Error("Checked-in tickets cannot enter gate validation again.");
+    }
+
+    if (isTicketCheckInPending(ticket)) {
+      throw new Error("This ticket is already locked for gate validation.");
+    }
+
+    ticket.listed = false;
+    ticket.checkInPendingUntil = getFutureIso(CHECK_IN_LOCK_MINUTES);
+    ticket.version += 1;
+
+    state.activity.unshift({
+      id: `check-in-start-${Date.now()}`,
+      type: "check_in_start",
+      title: "Gate validation started",
+      detail: `Ticket #${ticket.id} is locked for gate validation for ${CHECK_IN_LOCK_MINUTES} minutes.`,
+      ticketId: ticket.id,
+      amount: ticket.currentPrice,
+      actorAccountId: ticket.ownerAccountId,
       createdAt: new Date().toISOString(),
     });
 
@@ -345,8 +707,14 @@ export function markDemoTicketUsed(ticketId: number) {
       throw new Error("This ticket has already been checked in.");
     }
 
+    if (!isTicketCheckInPending(ticket)) {
+      throw new Error("Start gate validation before marking the ticket as used.");
+    }
+
     ticket.used = true;
     ticket.listed = false;
+    ticket.checkInPendingUntil = null;
+    ticket.version += 1;
 
     state.activity.unshift({
       id: `check-in-${Date.now()}`,
@@ -379,6 +747,18 @@ export function simulateTicketSale(input: SimulatedSaleInput) {
       throw new Error("Checked-in tickets can no longer be transferred.");
     }
 
+    if (isTicketCheckInPending(ticket)) {
+      throw new Error("This ticket is locked for gate validation and cannot be transferred.");
+    }
+
+    if (!ticket.listed) {
+      throw new Error("Only listed tickets can be purchased.");
+    }
+
+    if (isResaleWindowClosed(ticket)) {
+      throw new Error(`Resale is closed because the event starts within ${RESALE_CUTOFF_HOURS} hours.`);
+    }
+
     const buyer = getAccountById(state, input.buyerAccountId);
     const seller = getAccountById(state, ticket.ownerAccountId);
 
@@ -406,6 +786,8 @@ export function simulateTicketSale(input: SimulatedSaleInput) {
     ticket.ownerAccountId = buyer.id;
     ticket.currentPrice = amount;
     ticket.listed = false;
+    ticket.checkInPendingUntil = null;
+    ticket.version += 1;
 
     state.activity.unshift({
       id: `sale-${Date.now()}`,
